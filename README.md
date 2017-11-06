@@ -52,7 +52,7 @@ class WorkQueue():
         self.RESULTS = "results"
  ```
 
-To initialize a `WorkQueue` class, one needs to specify the connection to the Redis backend, and optionally specify `stale_time` and `tidy_interval`, which specify how long to wait before considering a job orphaned by a worker process, and how long to wait between runs of tidying up the queue, respectively. The `PENDING`, `WORKING`, `VALUES`, and `RESULS` fields give the names of the data structures allocated in the Redis backend. The `tidy_started` and `_task` fields are used to coordinate scheduling the task which keeps the queue tidy, as explained below.
+To initialize a `WorkQueue` class, one needs to specify the connection to the Redis backend, and optionally specify `stale_time` and `tidy_interval`, which specify how long to wait before considering a job orphaned by a worker process, and how long to wait between runs of tidying up the queue, respectively. The `PENDING`, `WORKING`, `VALUES`, and `RESULTS` fields give the names of the data structures allocated in the Redis backend. The `tidy_started` and `_task` fields are used to coordinate scheduling the task which keeps the queue tidy, as explained below.
 
 ### `enqueue`
 The code to add a job to the queue is below.
@@ -93,7 +93,7 @@ def value(self, id):
     return self.redis.hget(self.VALUES, id)
 
 def record(self, id, result):
-    self.redis.hmset(self.RESULTS, id, result)
+    self.redis.hset(self.RESULTS, id, result)
 ```
 
 `value` simply retrieves the stored input from the hash map corresponding to the given uuid. `record` is called by the worker after completing a job to store the output of the job.
