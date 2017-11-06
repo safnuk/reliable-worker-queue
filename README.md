@@ -6,8 +6,12 @@ Here we present a tutorial explaining how to setup a fault tolerant work queue i
 
 * Python: tested with 3.6, but should work well with other versions. 
 * Redis: install following the provided [instructions](https://redis.io/topics/quickstart). The code assumes that a basic Redis server is up and running on your computer, which comes from running the command
-```
+```shell
 redis-server
+```
+* redis-py: Python library used to interface with Redis. The easiest way to install it is using `pip`:
+```shell
+pip install redis
 ```
 
 ## Overview
@@ -48,4 +52,23 @@ class WorkQueue():
 
 To initialize a `WorkQueue` class, one needs to specify the connection to the Redis backend, and optionally specify `stale_time` and `tidy_interval`, which specify how long to wait before considering a job orphaned by a worker process, and how long to wait between runs of tidying up the queue, respectively.
 
+### `enqueue`
+The code to add a job to the queue is below.
+```python
+def enqueue(self, job):
+    id = uuid.uuid4()
+    self.redis.hset(self.VALUES, id, job)
+    self.redis.lpush(self.PENDING, id)
+```
+First, one needs to generate a unique identifying id to identify the job across the various data structures. We use python's `uuid` library for this purpose. `HSET` is the command to add the hash pair `(id, job)` to the hash map named 'values'. Finally, the `LPUSH` adds the job's uuid to the task queue.
 
+### `dequeue`
+To pull the next available job off the queue, we have the following.
+```python
+def dequeue(self):
+    pipeline = self.redis.pipeline()
+    id = pipeline.brpop(self.PENDING)
+    pipeline.zadd(self.WORKING, id, _timestamp())
+    result = pipeline.execute()
+    return result[0]
+```
