@@ -6,11 +6,11 @@ Here we present a tutorial explaining how to setup a fault tolerant work queue i
 
 * Python, version >= 3.5: A relatively recent version of Python 3 is required because the code utilizes modern features of the asyncio library. 
 * Redis: install following the provided [instructions](https://redis.io/topics/quickstart). The code assumes that a basic Redis server is up and running on your computer, which comes from running the command
-```shell
+```
 redis-server
 ```
 * redis-py: Python library used to interface with Redis. The easiest way to install it is using `pip`:
-```shell
+```
 pip install redis
 ```
 
@@ -130,11 +130,11 @@ Note that in order to periodically call this method without blocking the entire 
 A small test program can be found in [test_queue.py](https://github.com/safnuk/reliable-worker-queue/blob/master/test_queue.py). This sets up a producer which adds jobs to the queue on a regular basis. Each job is of the form "Job n", where n is a counter for the number of jobs added to date. It also sets up two worker processes who grab a job and prepend their name to the string. Each worker consumes at a different rate and periodically fails so that you can get a sense of how the work queue operates. It will run for 60 seconds, then close the threads and exit.
 
 Run the test cases using the command
-```shell
+```
 python3 test_queue.py
 ```
 You should see results similar to the following.
-```shell
+```
 Start
 Good Worker:b'Job 0'
 Good Worker:b'Job 1'
