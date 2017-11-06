@@ -1,4 +1,5 @@
 # Reliable Worker Queue
+### Brad Safnuk
 
 Here we present a tutorial explaining how to setup a fault tolerant work queue in python, using Redis as a backend.
 
