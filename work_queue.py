@@ -1,5 +1,5 @@
 import datetime
-from uuid import uuid4
+import uuid
 
 import redis
 
@@ -17,13 +17,13 @@ class WorkQueue():
         self.RESULTS = "results"
 
     def enqueue(self, job):
-        id = uuid4()
+        id = uuid.uuid4()
         self.redis.hset(self.VALUES, id, job)
         self.redis.lpush(self.PENDING, id)
 
     def dequeue(self):
         pipeline = self.redis.pipeline()
-        id = pipeline.rpop(self.PENDING)
+        id = pipeline.brpop(self.PENDING)
         pipeline.zadd(self.WORKING, id, _timestamp())
         result = pipeline.execute()
         return result[0]
@@ -61,4 +61,4 @@ if __name__ == '__main__':
     wq = WorkQueue(r)
     wq.enqueue("test")
     id = wq.dequeue()
-    wq.value(id)
+    print(wq.value(id))
