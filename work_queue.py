@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import suppress
 import datetime
 import uuid
 
@@ -11,6 +13,8 @@ class WorkQueue():
         self.redis = redis_connection
         self.tidy_interval = tidy_interval
         self.stale_time = stale_time
+        self.tidy_started = False
+        self._task = None
         self.PENDING = "pending"
         self.WORKING = "working"
         self.VALUES = "values"
@@ -22,19 +26,45 @@ class WorkQueue():
         self.redis.lpush(self.PENDING, id)
 
     def dequeue(self):
-        pipeline = self.redis.pipeline()
-        id = pipeline.brpop(self.PENDING)
-        pipeline.zadd(self.WORKING, id, _timestamp())
-        result = pipeline.execute()
-        return result[0]
+        with self.redis.pipeline() as pipeline:
+            while 1:
+                try:
+                    pipeline.watch(self.PENDING)
+                    id = pipeline.rpop(self.PENDING)
+                    if id is not None:
+                        pipeline.zadd(self.WORKING, id, _timestamp())
+                    pipeline.execute()
+                    break
+                except redis.WatchError:
+                    continue
+        return id
 
     def value(self, id):
         return self.redis.hget(self.VALUES, id)
 
     def record(self, id, result):
-        self.redis.hmset(self.RESULTS, id, result)
+        self.redis.hset(self.RESULTS, id, result)
+
+    async def schedule_tidy_task(self):
+        if not self.tidy_started:
+            self.tidy_started = True
+            self._task = asyncio.ensure_future(self._run_tidy())
+
+    async def stop_tidy_task(self):
+        print('Stopping tidy task')
+        if self.tidy_started:
+            self.tidy_started = False
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
+
+    async def _run_tidy(self):
+        while True:
+            await asyncio.sleep(self.tidy_interval)
+            self._tidy()
 
     def _tidy(self):
+        print("Tidying up")
         pipeline = self.redis.pipeline()
         pipeline.zrangebyscore(
             self.WORKING, 0, _timestamp() - self.stale_time
@@ -44,21 +74,15 @@ class WorkQueue():
         )
         stale_jobs = pipeline.execute()[0]
 
-        is_completed = self.redis.hexists(self.RESULTS, stale_jobs)
-        pipeline = self.redis.pipelin()
-        for job, completed in zip(stale_jobs, is_completed):
-            if not completed:
-                pipeline.lpush(self.PENDING, job)
-        pipeline.execute()
+        if stale_jobs:
+            results = self.redis.hmget(self.RESULTS, stale_jobs)
+            pipeline = self.redis.pipeline()
+            for job, result in zip(stale_jobs, results):
+                if result is None:
+                    print("Job {} failed".format(job))
+                    pipeline.lpush(self.PENDING, job)
+            pipeline.execute()
 
 
 def _timestamp():
     return datetime.datetime.now().timestamp()
-
-
-if __name__ == '__main__':
-    r = redis.Redis()
-    wq = WorkQueue(r)
-    wq.enqueue("test")
-    id = wq.dequeue()
-    print(wq.value(id))
