@@ -6,8 +6,8 @@ import redis
 
 class WorkQueue():
     def __init__(self, redis_connection,
-                 tidy_interval=30000,
-                 stale_time=30000):
+                 tidy_interval=30,
+                 stale_time=30):
         self.redis = redis_connection
         self.tidy_interval = tidy_interval
         self.stale_time = stale_time
