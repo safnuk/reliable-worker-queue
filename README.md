@@ -4,7 +4,7 @@ Here we present a tutorial explaining how to setup a fault tolerant work queue i
 
 ## Requirements
 
-* Python: tested with 3.6, but should work well with other versions. 
+* Python, version >= 3.6: A relatively recent version of Python 3 is required because the code utilizes modern features of the asyncio library. 
 * Redis: install following the provided [instructions](https://redis.io/topics/quickstart). The code assumes that a basic Redis server is up and running on your computer, which comes from running the command
 ```shell
 redis-server
@@ -72,3 +72,44 @@ def dequeue(self):
     result = pipeline.execute()
     return result[0]
 ```
+Here we see a few more aspects of Redis that help make the operations more robust. *Pipelines* provide a way for python to implement blocks of transactions that are guaranteed to run on the redis server serially. This is equivalent to including the operations in a `MULTI` ... `EXEC` block on the Redis command line app. We pop the oldest available job from the queue of pending jobs then add it to the working list. Note that `BRPOP` is the blocking variant of pop - if there is nothing to pop the thread blocks and waits until there is a job available. If multiple workers are requesting jobs, Redis automatically ensures they receive different jobs, in the order that the worker requests are made. 
+
+The `ZADD` command adds an item to a Redis sorted set, which in this keeps keeps the added items sorted in order of their timestamps. This allows for easy retrieval of jobs that have been orphaned. Finally, executing the pipeline sends the batch of commands to the server and executes them in serial, returning the list of outputs from each step. We return the first output from the batch, which is the uuid of the job that the worker is assigned to process.
+
+### Retrieving values and recording output
+
+To retrieve the job and record the output from the worker we have the following helper methods.
+```python
+def value(self, id):
+    return self.redis.hget(self.VALUES, id)
+
+def record(self, id, result):
+    self.redis.hmset(self.RESULTS, id, result)
+```
+
+`value` simply retrieves the stored input from the hash map corresponding to the given uuid. `record` is called by the worker after completing a job to store the output of the job.
+
+### Requeueing stalled jobs
+
+Periodically, the work queue needs to run the following helper method, with frequency determined by the `tidy_interval` field determined at initialization.
+```python
+def _tidy(self):
+    pipeline = self.redis.pipeline()
+    pipeline.zrangebyscore(
+        self.WORKING, 0, _timestamp() - self.stale_time
+    )
+    pipeline.zremrangebyscore(
+        self.WORKING, 0, _timestamp() - self.stale_time
+    )
+    stale_jobs = pipeline.execute()[0]
+
+    is_completed = self.redis.hexists(self.RESULTS, stale_jobs)
+    pipeline = self.redis.pipelin()
+    for job, completed in zip(stale_jobs, is_completed):
+        if not completed:
+            pipeline.lpush(self.PENDING, job)
+    pipeline.execute()
+```
+Here we again utilize a pipeline to keep the entire transaction atomic. We first grab all the in-progress jobs that are older than `stale_time`, and remove them from the `working` set. We check these jobs to see if they have output results recorded for them (indicating that the worker successfully completed the job). Any not completed are put back on the `pending` queue to be processed again.
+
+Note that in order to periodically call this method without blocking the entire program, we need to utilize python's [asyncio library](https://docs.python.org/3/library/asyncio.html)
